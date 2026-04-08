@@ -1,41 +1,59 @@
+import re
 from collections import Counter
 from urllib.parse import urlparse
-from bs4 import BeautifulSoup
 
+# Préfixes de classes CSS souvent associés au nom d'une boutique
+_NAME_PREFIXES = re.compile(r'(name|title|label|brand|heading)', re.IGNORECASE)
+# Textes à exclure : numéros d'étage, statuts d'ouverture, ponctuation seule
+_EXCLUDE = re.compile(r'^(-?\d+|ouvert|fermé|open|closed|\.+)$', re.IGNORECASE)
 
-def detect_shops(html: str, base_url: str, min_count: int = 10) -> list[dict]:
-    """
-    Détecte automatiquement les cartes boutiques en cherchant
-    la classe CSS la plus répétée sur des balises <a> pointant vers des sous-pages.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-    parsed_base = urlparse(base_url)
-    base_path = parsed_base.path.rstrip("/")
+def _find_by_class_prefix(tag, pattern: re.Pattern) -> str:
+    texts = []
+    for el in tag.find_all(True):
+        classes = el.get("class", [])
+        if any(pattern.search(c) for c in classes):
+            text = el.get_text(strip=True)
+            if text:
+                texts.append(text)
 
-    # Compte les classes sur les <a> qui pointent vers des sous-chemins de l'URL de base
+    if not texts:
+        return ""
+
+    # Élément le plus spécifique = texte le plus court
+    text = min(texts, key=len)
+
+    # Déduplique si le nom apparaît deux fois (logo + texte)
+    half = len(text) // 2
+    if half > 0 and text[:half] == text[half:]:
+        text = text[:half]
+
+    text = text.strip()
+    return text if text and not _EXCLUDE.match(text) else ""
+
+def detect_shops(soup, min_count: int = 10) -> list[dict]:
     class_counter = Counter()
     candidates = []
     for a in soup.find_all("a", href=True):
         href = a.get("href", "")
-        # Ne retenir que les liens vers des sous-pages (profondeur +1)
-        if href.startswith(base_path + "/") or href.startswith("http") and base_path in href:
-            for cls in a.get("class", []):
-                class_counter[cls] += 1
-            candidates.append(a)
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        path = urlparse(href).path if href.startswith("http") else href
+        segments = [s for s in path.split("/") if s]
+        if len(segments) < 2:
+            continue
+        for cls in a.get("class", []):
+            class_counter[cls] += 1
+        candidates.append(a)
 
     if not class_counter:
         return []
 
-    # La classe la plus répétée est très probablement celle des cartes
     dominant_class = class_counter.most_common(1)[0][0]
-    count = class_counter[dominant_class]
-
-    if count < min_count:
+    if class_counter[dominant_class] < min_count:
         return []
 
-    print(f"Classe dominante détectée : '{dominant_class}' ({count} occurrences)")
+    print(f"Classe dominante détectée : '{dominant_class}' ({class_counter[dominant_class]} occurrences)")
 
-    # Extraire nom, catégorie, URL pour chaque carte
     shops = []
     seen_urls = set()
     for a in candidates:
@@ -43,24 +61,24 @@ def detect_shops(html: str, base_url: str, min_count: int = 10) -> list[dict]:
             continue
 
         href = a.get("href", "")
-        # Reconstruire l'URL absolue si relative
-        if href.startswith("/"):
-            href = f"{parsed_base.scheme}://{parsed_base.netloc}{href}"
-
         if href in seen_urls:
             continue
         seen_urls.add(href)
 
-        # Nom : le texte le plus court parmi les enfants directs significatifs
-        texts = [t.strip() for t in a.stripped_strings if len(t.strip()) > 1]
-        name = min(texts, key=len) if texts else ""
+        name = _find_by_class_prefix(a, _NAME_PREFIXES)
 
-        # Catégorie : le texte le plus long (souvent la description)
-        category = max(texts, key=len) if len(texts) > 1 else ""
-        if category == name:
-            category = ""
+        # fallback — texte le plus long parmi les non-exclus
+        if not name:
+            texts = [t.strip() for t in a.stripped_strings
+                     if len(t.strip()) > 1 and not _EXCLUDE.match(t.strip())]
+            if texts:
+                name = max(texts, key=len)
+
+        all_texts = [t.strip() for t in a.stripped_strings
+                     if len(t.strip()) > 1 and not _EXCLUDE.match(t.strip()) and t.strip() != name]
+        details = " | ".join(dict.fromkeys(all_texts))  # dédupliqué, ordre préservé
 
         if name:
-            shops.append({"name": name, "category": category, "url": href})
+            shops.append({"name": name, "details": details, "url": href})
 
     return shops

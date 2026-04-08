@@ -1,5 +1,6 @@
 import os
 import time
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -25,7 +26,7 @@ def fetch_html(url: str, html_path: str) -> None:
         except (NoSuchElementException, TimeoutException):
             break
 
-    html = driver.page_source
+    html = BeautifulSoup(driver.page_source, "html.parser").prettify()
     driver.quit()
 
     os.makedirs(os.path.dirname(html_path), exist_ok=True)

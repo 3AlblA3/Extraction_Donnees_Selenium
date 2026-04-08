@@ -1,10 +1,9 @@
 import os
 import csv
 
-FIELDNAMES = ["name", "category", "url"]
+FIELDNAMES = ["name", "details", "url"]
 
-# Exporter pour sauvegarder les données dans un fichier CSV
-# Prends en paramètre la liste des boutiques ET le chemin du fichier CSV
+# Enregistre la liste des boutiques dans un fichier CSV
 def save_csv(shops: list[dict], csv_path: str) -> None:
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:

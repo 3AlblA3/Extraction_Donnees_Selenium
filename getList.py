@@ -1,14 +1,13 @@
+from bs4 import BeautifulSoup
 from autoDetect import detect_shops
-from getHtml import fetch_html
 
 
-def get_shop_list(url: str, html_path: str) -> list[dict]:
-    fetch_html(url, html_path)
-
+def get_shop_list(html_path: str) -> list[dict]:
     with open(html_path, encoding="utf-8") as f:
         html = f.read()
 
+    soup = BeautifulSoup(html, "html.parser")
     print("Détection automatique des boutiques...")
-    shops = detect_shops(html, url)
+    shops = detect_shops(soup)
     print(f"{len(shops)} boutiques trouvées.")
     return shops
